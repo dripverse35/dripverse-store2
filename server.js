@@ -7,18 +7,40 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+const ADMIN_EMAIL = "dripverse35@gmail.com";
+
 mongoose.connect("mongodb+srv://dripverse35_db_user:MyPass12345@dripversecluster.jwum2j4.mongodb.net/businessDB?retryWrites=true&w=majority")
   .then(() => console.log('MongoDB Connected'))
   .catch(err => console.log('DB Error:', err));
 
 // SCHEMAS
-const userSchema = new mongoose.Schema({ email: { type: String, required: true, unique: true }, password: { type: String, required: true } }, { timestamps: true });
+const userSchema = new mongoose.Schema({
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, default: 'customer' }
+}, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
-const productSchema = new mongoose.Schema({ name: { type: String, required: true }, price: { type: Number, required: true }, description: String, category: String, stock: { type: Number, default: 0 }, imageUrl: String }, { timestamps: true });
+const productSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  description: String,
+  category: String,
+  stock: { type: Number, default: 0 },
+  imageUrl: String
+}, { timestamps: true });
 const Product = mongoose.model('Product', productSchema);
 
-const orderSchema = new mongoose.Schema({ customerName: { type: String, required: true }, customerPhone: { type: String, required: true }, product: { type: String, required: true }, quantity: { type: Number, required: true }, amount: { type: Number, required: true }, status: { type: String, default: 'Pending' } }, { timestamps: true });
+const orderSchema = new mongoose.Schema({
+  customerName: { type: String, required: true },
+  customerPhone: { type: String, required: true },
+  customerEmail: { type: String, required: true },
+  product: { type: String, required: true },
+  quantity: { type: Number, required: true },
+  amount: { type: Number, required: true },
+  paymentStatus: { type: String, default: 'Pending Verification' },
+  status: { type: String, default: 'Pending' }
+}, { timestamps: true });
 const Order = mongoose.model('Order', orderSchema);
 
 // USER ROUTES
@@ -28,7 +50,8 @@ app.post('/signup', async (req, res) => {
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ message: 'Email already registered' });
     const hashed = await bcrypt.hash(password, 10);
-    await new User({ email, password: hashed }).save();
+    const role = email === ADMIN_EMAIL ? 'admin' : 'customer';
+    await new User({ email, password: hashed, role }).save();
     res.status(201).json({ message: 'Signup successful' });
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
@@ -40,7 +63,8 @@ app.post('/login', async (req, res) => {
     if (!user) return res.status(400).json({ message: 'User not found' });
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(400).json({ message: 'Wrong password' });
-    res.status(200).json({ message: 'Login successful' });
+    const role = email === ADMIN_EMAIL ? 'admin' : 'customer';
+    res.status(200).json({ message: 'Login successful', role });
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -83,7 +107,7 @@ app.post('/orders', async (req, res) => {
   try {
     const order = new Order(req.body);
     await order.save();
-    res.status(201).json({ message: 'Order added', order });
+    res.status(201).json({ message: 'Order placed', order });
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -94,10 +118,17 @@ app.get('/orders', async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
+app.get('/orders/customer/:email', async (req, res) => {
+  try {
+    const orders = await Order.find({ customerEmail: req.params.email }).sort({ createdAt: -1 });
+    res.status(200).json(orders);
+  } catch (err) { res.status(500).json({ message: 'Server error' }); }
+});
+
 app.patch('/orders/:id', async (req, res) => {
   try {
-    await Order.findByIdAndUpdate(req.params.id, { status: req.body.status });
-    res.status(200).json({ message: 'Status updated' });
+    await Order.findByIdAndUpdate(req.params.id, req.body);
+    res.status(200).json({ message: 'Order updated' });
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
@@ -108,7 +139,7 @@ app.delete('/orders/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ message: 'Server error' }); }
 });
 
-// STATS ROUTE
+// STATS
 app.get('/stats', async (req, res) => {
   try {
     const totalProducts = await Product.countDocuments();
